@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+dist/
+build/
+data/*.sqlite3
+data/*.sqlite3-*
+output/raw/*
+!output/raw/.gitkeep
+output/cleaned/*
+!output/cleaned/.gitkeep
