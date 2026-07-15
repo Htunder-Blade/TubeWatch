@@ -1,4 +1,4 @@
-"""Command-line entry point for the current channel-reading workflow."""
+"""Command-line entry point for supported video source workflows."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 import sys
 from collections.abc import Sequence
 
-from tubewatch.checks import check_channel_updates
+from tubewatch.checks import check_source_updates
 from tubewatch.exceptions import (
     InvalidProcessingOptionError,
     InvalidSourceError,
@@ -17,11 +17,11 @@ from tubewatch.exceptions import (
 )
 from tubewatch.models import CheckResult, ProcessingBatchResult, ProcessingItemResult, VideoItem
 from tubewatch.processing import process_pending_videos
-from tubewatch.youtube.channel import fetch_channel_videos
+from tubewatch.sources import fetch_source_videos
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the TubeWatch channel reader and return a process exit code."""
+    """Run TubeWatch and return a process exit code."""
 
     arguments_list = list(argv) if argv is not None else sys.argv[1:]
     if arguments_list and arguments_list[0] == "check":
@@ -35,7 +35,7 @@ def _run_fetch(argv: Sequence[str]) -> int:
     parser = _build_fetch_parser()
     arguments = parser.parse_args(argv)
     try:
-        videos = fetch_channel_videos(arguments.channel_url, limit=arguments.limit)
+        videos = fetch_source_videos(arguments.source_url, limit=arguments.limit)
     except InvalidSourceError as exc:
         parser.error(str(exc))
     except SourceFetchError as exc:
@@ -67,8 +67,8 @@ def _run_check(argv: Sequence[str]) -> int:
     parser = _build_check_parser()
     arguments = parser.parse_args(argv)
     try:
-        result = check_channel_updates(
-            arguments.channel_url,
+        result = check_source_updates(
+            arguments.source_url,
             state_path=arguments.state_db,
             limit=arguments.limit,
         )
@@ -136,13 +136,16 @@ def _run_process(argv: Sequence[str]) -> int:
 def _build_fetch_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tubewatch",
-        description="读取公开 YouTube 频道最近的视频。",
+        description="读取公开 YouTube 频道或播放列表中的视频。",
         epilog=(
-            "有状态新增检测：tubewatch check CHANNEL_URL；"
+            "有状态新增检测：tubewatch check SOURCE_URL；"
             "显式字幕处理：tubewatch process"
         ),
     )
-    parser.add_argument("channel_url", help="YouTube 频道主页 URL 或 @handle")
+    parser.add_argument(
+        "source_url",
+        help="YouTube 频道主页 URL、@handle 或 /playlist?list=... URL",
+    )
     parser.add_argument("--limit", type=int, default=10, help="最多返回的视频数量")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出稳定字段")
     return parser
@@ -151,9 +154,12 @@ def _build_fetch_parser() -> argparse.ArgumentParser:
 def _build_check_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tubewatch check",
-        description="读取公开 YouTube 频道并记录已发现的视频。",
+        description="读取公开 YouTube 频道或播放列表并记录已发现的视频。",
     )
-    parser.add_argument("channel_url", help="YouTube 频道主页 URL 或 @handle")
+    parser.add_argument(
+        "source_url",
+        help="YouTube 频道主页 URL、@handle 或 /playlist?list=... URL",
+    )
     parser.add_argument("--limit", type=int, default=10, help="最多返回的视频数量")
     parser.add_argument(
         "--state-db",

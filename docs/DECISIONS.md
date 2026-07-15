@@ -31,3 +31,6 @@
 29. Tester 自动处理下一条 pending；`succeeded` 与正确记录的 `no_subtitles` 都算 workflow 通过，只有普通 `failed` 才抛出测试错误。
 30. 同一时间批量发现的视频按数据库录入顺序处理，不以 video ID 重新排序。
 31. 频道输入除完整 YouTube URL 外也接受 `@handle` 简写；两种形式统一规范化为相同的 `https://www.youtube.com/@handle/videos` 来源 URL，以保持去重一致。
+32. Phase 3 支持标准 `https://www.youtube.com/playlist?list=...` URL；播放列表在独立适配模块中输出相同的 `VideoItem`，不接受带 `list` 参数的单视频 watch URL 作为来源。
+33. CLI 和通用 Python API 根据标准播放列表 URL 路由，显式频道与播放列表 API 继续保留；SQLite 使用 `source_type=playlist` 和只保留 `list` 参数的规范化 URL 独立去重，无需 schema 迁移。
+34. Tester 配置不使用混合含义的单一 `source_url`；频道 handle 是必填主来源，播放列表 URL 是选填附加来源，两者分别调用 CLI 并独立验证去重。

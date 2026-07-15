@@ -2,30 +2,31 @@
 
 TubeWatch 是有状态的上层监控工具：读取“视频来源”，通过 SQLite 识别此前未发现的视频，并显式协调处理任务。TubeScribe 是外部、独立安装的下层 Python 包，负责单视频字幕处理。
 
-“视频来源”是项目的通用概念。频道是当前唯一实现的来源，未来播放列表可在独立模块中提供相同的稳定 `VideoItem` 输出。现阶段不为未来功能建立抽象基类、大量接口或空实现；代码只保留清楚的模块边界。
+“视频来源”是项目的通用概念。频道和播放列表是当前实现的两种来源，各自在独立模块中提供相同的稳定 `VideoItem` 输出。通用入口只负责根据标准播放列表 URL 路由，不建立抽象基类、大量接口或插件系统。
 
 ```text
-Notebook -> python -m tubewatch check -> CLI -> youtube.channel -> list[VideoItem]
-                                                |
-                                                v
-                                      SQLite discovered_videos
-                                                |
-                                                v
-                                         CheckResult.new_videos
-                                                |
-                                      explicit process command
-                                                |
-                                                v
-                              TubeScribe API -> output/raw + output/cleaned
+Notebook -> python -m tubewatch check -> CLI -> youtube.channel  --\
+                                            -> youtube.playlist --+-> list[VideoItem]
+                                                                   |
+                                                                   v
+                                                         SQLite discovered_videos
+                                                                   |
+                                                                   v
+                                                            CheckResult.new_videos
+                                                                   |
+                                                         explicit process command
+                                                                   |
+                                                                   v
+                                                 TubeScribe API -> output/raw + output/cleaned
 ```
 
 第三方 yt-dlp 数据只存在于来源适配模块内部。项目对外暴露自己的不可变数据模型，并把预期失败转换成项目级异常。
 
-当前 CLI 是正式 Python API 的薄适配层，只负责解析频道 URL、`limit` 和输出格式，并把项目级异常映射为稳定退出码。Notebook 与 TubeScribe Tester 使用相同的进程边界：由当前 Kernel 的 `sys.executable` 启动模块入口，在子进程中调用正式代码。Notebook 不直接导入 `src`、不修改 `sys.path`，也不复制频道读取逻辑；其真实检查写入项目内的 `data/tubewatch.sqlite3`，使 Tester 同时成为当前手工录入入口。editable install 让开发中的源码通过标准包机制立即可用，不表示项目已经发布或完成。
+当前 CLI 是正式 Python API 的薄适配层，只负责解析来源 URL、`limit` 和输出格式，并把项目级异常映射为稳定退出码。标准 `/playlist?list=...` URL 路由到播放列表适配器，其他输入保持现有频道与 `@handle` 语义。Tester 配置层把两种来源明确分开：`channel_handle` 是必填主来源，`playlist_url` 是选填附加来源；两者分别调用同一正式 CLI，不合并身份或去重范围。Notebook 与 TubeScribe Tester 使用相同的进程边界：由当前 Kernel 的 `sys.executable` 启动模块入口，在子进程中调用正式代码。Notebook 不直接导入 `src`、不修改 `sys.path`，也不复制来源读取逻辑；其真实检查写入项目内的 `data/tubewatch.sqlite3`，使 Tester 同时成为当前手工录入入口。editable install 让开发中的源码通过标准包机制立即可用，不表示项目已经发布或完成。
 
 ## SQLite 状态边界
 
-`check_channel_updates` 先完整读取频道，只有读取成功后才打开并事务性更新 SQLite。数据库以 `source_type + source_url + video_id` 唯一标识一条发现记录，因此同一视频可分别属于不同来源。来源 URL 使用频道模块的规范化结果；`source_type` 当前只有 `channel`，为未来播放列表保留数据位置，但没有提前实现播放列表代码。
+频道和播放列表检查都先完整读取来源，只有读取成功后才打开并事务性更新 SQLite。数据库以 `source_type + source_url + video_id` 唯一标识一条发现记录，因此同一视频可分别属于不同来源。来源 URL 使用对应适配模块的规范化结果；`source_type` 当前为 `channel` 或 `playlist`。
 
 首次检查会把抓取范围内的全部视频返回为新增；检查成功后立即记录“已发现”。`first_seen_at` 保持不变，后续检查会更新元数据和 `last_seen_at`。发现状态与 TubeScribe 处理状态严格分离；处理结果单独写入 `processing_records`。
 

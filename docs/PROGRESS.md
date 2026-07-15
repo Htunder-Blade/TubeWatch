@@ -1,6 +1,6 @@
 # 当前进度
 
-## 已完成（Phase 0 至 Phase 2）
+## 已完成（Phase 0 至 Phase 2，以及 Phase 3 实现）
 
 - 建立 Python 3.11+ `src` 布局和项目元数据。
 - 定义稳定的 `VideoItem` 数据模型和项目级异常。
@@ -23,9 +23,13 @@
 - 记录成功输出或失败原因；失败不自动重试，字幕产物写入项目 `output/`。
 - 将无字幕从普通失败中分离为 `no_subtitles` 正常终态；Tester 可验证成功或无字幕两条真实分支。
 - Phase 2 已在 Notebook 中由用户显式启用 TubeScribe 完成真实验证：已确认字幕成功产出以及 `no_subtitles` 正常终态。
+- 增加公开 YouTube 播放列表读取 API，并将标准 `/playlist?list=...` URL 路由到独立来源适配器。
+- 增加播放列表有状态检查；使用 `source_type=playlist` 与规范化 URL 独立去重，不改变现有数据库 schema。
+- 扩展 CLI、公共 Python API 和 Tester；Tester 使用必填 `channel_handle` 与选填 `playlist_url` 分别执行相同的 `check` workflow。
+- Phase 3 已通过离线 URL、适配转换、CLI 路由和 SQLite 去重回归；真实播放列表网络 workflow 尚待用户在 Tester 中主动验证。
 
 ## 尚未完成
 
-- 播放列表来源。
+- Phase 3 的真实 YouTube 播放列表网络验证。
 - 普通处理失败的重试、定时运行和通知；`no_subtitles` 默认不重试。
 - 后台服务、GUI 和 OpenClaw 集成。
