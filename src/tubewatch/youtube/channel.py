@@ -55,12 +55,21 @@ def fetch_channel_videos(channel_url: str, limit: int = 10) -> list[VideoItem]:
 
 
 def normalize_channel_url(channel_url: str) -> str:
-    """Validate and normalize a supported YouTube channel URL."""
+    """Validate and normalize a YouTube channel URL or ``@handle``."""
 
     if not isinstance(channel_url, str) or not channel_url.strip():
         raise InvalidSourceError("channel_url 不能为空。")
 
     value = channel_url.strip()
+    if value.startswith("@"):
+        if (
+            len(value) == 1
+            or any(delimiter in value for delimiter in "/?#\\")
+            or any(character.isspace() for character in value)
+        ):
+            raise InvalidSourceError("请提供有效的 YouTube 频道 handle，例如 @wangzhian。")
+        return f"https://www.youtube.com/{value}/videos"
+
     parsed = urlparse(value)
     host = (parsed.hostname or "").lower()
     if parsed.scheme not in {"http", "https"} or host not in {
@@ -68,7 +77,7 @@ def normalize_channel_url(channel_url: str) -> str:
         "www.youtube.com",
         "m.youtube.com",
     }:
-        raise InvalidSourceError("请提供完整的 YouTube 频道 URL。")
+        raise InvalidSourceError("请提供 @handle 或完整的 YouTube 频道 URL。")
 
     parts = [part for part in parsed.path.split("/") if part]
     is_handle = bool(parts and parts[0].startswith("@"))

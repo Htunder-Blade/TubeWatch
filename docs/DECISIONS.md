@@ -30,3 +30,4 @@
 28. 默认字幕产物位于 `output/raw` 和 `output/cleaned`，产物不进入版本控制。
 29. Tester 自动处理下一条 pending；`succeeded` 与正确记录的 `no_subtitles` 都算 workflow 通过，只有普通 `failed` 才抛出测试错误。
 30. 同一时间批量发现的视频按数据库录入顺序处理，不以 video ID 重新排序。
+31. 频道输入除完整 YouTube URL 外也接受 `@handle` 简写；两种形式统一规范化为相同的 `https://www.youtube.com/@handle/videos` 来源 URL，以保持去重一致。

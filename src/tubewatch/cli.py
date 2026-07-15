@@ -142,7 +142,7 @@ def _build_fetch_parser() -> argparse.ArgumentParser:
             "显式字幕处理：tubewatch process"
         ),
     )
-    parser.add_argument("channel_url", help="YouTube 频道主页 URL")
+    parser.add_argument("channel_url", help="YouTube 频道主页 URL 或 @handle")
     parser.add_argument("--limit", type=int, default=10, help="最多返回的视频数量")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出稳定字段")
     return parser
@@ -153,7 +153,7 @@ def _build_check_parser() -> argparse.ArgumentParser:
         prog="tubewatch check",
         description="读取公开 YouTube 频道并记录已发现的视频。",
     )
-    parser.add_argument("channel_url", help="YouTube 频道主页 URL")
+    parser.add_argument("channel_url", help="YouTube 频道主页 URL 或 @handle")
     parser.add_argument("--limit", type=int, default=10, help="最多返回的视频数量")
     parser.add_argument(
         "--state-db",
