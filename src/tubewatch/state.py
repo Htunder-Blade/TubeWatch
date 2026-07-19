@@ -73,6 +73,53 @@ def record_discovered_videos(
             connection.close()
 
 
+def delete_discovered_videos(
+    state_path: str | Path,
+    *,
+    source_type: str,
+    source_url: str,
+    video_ids: tuple[str, ...],
+) -> tuple[int, bool]:
+    """Delete exact discovery records and remove their source when empty."""
+
+    database_path = initialize_state_database(state_path)
+    placeholders = ", ".join("?" for _ in video_ids)
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(database_path)
+        connection.execute("PRAGMA foreign_keys = ON")
+        with connection:
+            cursor = connection.execute(
+                f"""
+                DELETE FROM discovered_videos
+                WHERE source_type = ? AND source_url = ?
+                  AND video_id IN ({placeholders})
+                """,
+                (source_type, source_url, *video_ids),
+            )
+            remaining = connection.execute(
+                """
+                SELECT 1 FROM discovered_videos
+                WHERE source_type = ? AND source_url = ?
+                LIMIT 1
+                """,
+                (source_type, source_url),
+            ).fetchone()
+            source_removed = False
+            if remaining is None:
+                source_cursor = connection.execute(
+                    "DELETE FROM sources WHERE source_type = ? AND source_url = ?",
+                    (source_type, source_url),
+                )
+                source_removed = source_cursor.rowcount == 1
+        return cursor.rowcount, source_removed
+    except (OSError, sqlite3.Error) as exc:
+        raise StateStorageError(f"无法清理测试发现记录：{database_path}（{exc}）") from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def _resolve_database_path(state_path: str | Path) -> Path:
     try:
         path = Path(state_path).expanduser().resolve()
@@ -244,10 +291,18 @@ def load_pending_videos(
     state_path: str | Path,
     *,
     limit: int,
+    source_type: str | None = None,
+    source_url: str | None = None,
+    video_ids: tuple[str, ...] | None = None,
 ) -> list[PendingVideoRecord]:
     """Return pending videos in first-discovered order."""
 
     database_path = initialize_state_database(state_path)
+    where_sql, parameters = _pending_filter(
+        source_type=source_type,
+        source_url=source_url,
+        video_ids=video_ids,
+    )
     connection: sqlite3.Connection | None = None
     try:
         connection = sqlite3.connect(database_path)
@@ -261,11 +316,11 @@ def load_pending_videos(
               ON p.source_type = d.source_type
              AND p.source_url = d.source_url
              AND p.video_id = d.video_id
-            WHERE p.status = 'pending'
+            WHERE {where_sql}
             ORDER BY d.first_seen_at, d.rowid
             LIMIT ?
-            """,
-            (limit,),
+            """.format(where_sql=where_sql),
+            (*parameters, limit),
         ).fetchall()
         return [
             PendingVideoRecord(
@@ -358,16 +413,36 @@ def mark_processing_no_subtitles(
     )
 
 
-def count_pending_videos(state_path: str | Path) -> int:
+def count_pending_videos(
+    state_path: str | Path,
+    *,
+    source_type: str | None = None,
+    source_url: str | None = None,
+    video_ids: tuple[str, ...] | None = None,
+) -> int:
     """Return the number of videos still pending processing."""
 
     database_path = initialize_state_database(state_path)
+    where_sql, parameters = _pending_filter(
+        source_type=source_type,
+        source_url=source_url,
+        video_ids=video_ids,
+    )
     connection: sqlite3.Connection | None = None
     try:
         connection = sqlite3.connect(database_path)
         return int(
             connection.execute(
-                "SELECT COUNT(*) FROM processing_records WHERE status = 'pending'"
+                f"""
+                SELECT COUNT(*)
+                FROM discovered_videos AS d
+                JOIN processing_records AS p
+                  ON p.source_type = d.source_type
+                 AND p.source_url = d.source_url
+                 AND p.video_id = d.video_id
+                WHERE {where_sql}
+                """,
+                parameters,
             ).fetchone()[0]
         )
     except (OSError, sqlite3.Error) as exc:
@@ -375,6 +450,27 @@ def count_pending_videos(state_path: str | Path) -> int:
     finally:
         if connection is not None:
             connection.close()
+
+
+def _pending_filter(
+    *,
+    source_type: str | None,
+    source_url: str | None,
+    video_ids: tuple[str, ...] | None,
+) -> tuple[str, tuple[object, ...]]:
+    clauses = ["p.status = 'pending'"]
+    parameters: list[object] = []
+    if source_type is not None:
+        clauses.append("d.source_type = ?")
+        parameters.append(source_type)
+    if source_url is not None:
+        clauses.append("d.source_url = ?")
+        parameters.append(source_url)
+    if video_ids is not None:
+        placeholders = ", ".join("?" for _ in video_ids)
+        clauses.append(f"d.video_id IN ({placeholders})")
+        parameters.extend(video_ids)
+    return " AND ".join(clauses), tuple(parameters)
 
 
 def _backfill_processing_records(connection: sqlite3.Connection) -> None:

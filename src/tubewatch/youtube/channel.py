@@ -1,13 +1,13 @@
 """Read recent videos from a public YouTube channel."""
 
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from tubewatch.exceptions import InvalidSourceError, SourceFetchError
-from tubewatch.models import VideoItem
+from tubewatch.models import PlaylistItem, VideoItem
 from tubewatch.youtube._video import optional_text, video_item_from_entry
 
 
@@ -54,8 +54,68 @@ def fetch_channel_videos(channel_url: str, limit: int = 10) -> list[VideoItem]:
     return videos
 
 
+def fetch_channel_playlists(channel_url: str) -> list[PlaylistItem]:
+    """Return public playlists exposed on a YouTube channel's playlists tab."""
+
+    normalized_url = _normalize_channel_tab_url(channel_url, "playlists")
+    options: dict[str, Any] = {
+        "extract_flat": True,
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": False,
+    }
+
+    try:
+        with YoutubeDL(options) as downloader:
+            result = downloader.extract_info(normalized_url, download=False)
+    except (DownloadError, OSError) as exc:
+        raise SourceFetchError(
+            "无法读取该 YouTube 频道的播放列表。请检查频道、网络连接以及播放列表是否公开可访问。"
+        ) from exc
+    except Exception as exc:  # Keep third-party implementation errors private.
+        raise SourceFetchError("读取 YouTube 频道播放列表时发生了意外错误。") from exc
+
+    if not isinstance(result, dict):
+        raise SourceFetchError("YouTube 未返回可识别的频道播放列表数据。")
+    entries = result.get("entries")
+    if not isinstance(entries, list):
+        raise SourceFetchError("该频道未返回可识别的播放列表清单。")
+
+    playlists: list[PlaylistItem] = []
+    seen_ids: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        playlist_id = optional_text(entry.get("id"))
+        title = optional_text(entry.get("title"))
+        if not playlist_id or not title or playlist_id in seen_ids:
+            continue
+        seen_ids.add(playlist_id)
+        playlists.append(
+            PlaylistItem(
+                playlist_id=playlist_id,
+                title=title,
+                url=f"https://www.youtube.com/playlist?{urlencode({'list': playlist_id})}",
+            )
+        )
+    return playlists
+
+
 def normalize_channel_url(channel_url: str) -> str:
     """Validate and normalize a YouTube channel URL or ``@handle``."""
+
+    return _normalize_channel_tab_url(channel_url, "videos")
+
+
+def normalize_channel_playlists_url(channel_url: str) -> str:
+    """Validate a channel input and normalize its playlists tab URL."""
+
+    return _normalize_channel_tab_url(channel_url, "playlists")
+
+
+def _normalize_channel_tab_url(channel_url: str, tab: str) -> str:
+    """Validate a channel input and normalize one supported tab URL."""
 
     if not isinstance(channel_url, str) or not channel_url.strip():
         raise InvalidSourceError("channel_url 不能为空。")
@@ -68,7 +128,7 @@ def normalize_channel_url(channel_url: str) -> str:
             or any(character.isspace() for character in value)
         ):
             raise InvalidSourceError("请提供有效的 YouTube 频道 handle，例如 @wangzhian。")
-        return f"https://www.youtube.com/{value}/videos"
+        return f"https://www.youtube.com/{value}/{tab}"
 
     parsed = urlparse(value)
     host = (parsed.hostname or "").lower()
@@ -87,6 +147,5 @@ def normalize_channel_url(channel_url: str) -> str:
             "当前仅支持 YouTube 频道主页 URL（/@handle、/channel/...、/c/... 或 /user/...）。"
         )
 
-    # The videos tab avoids mixing Shorts/live tabs into this first-stage workflow.
     base_parts = parts[:1] if is_handle else parts[:2]
-    return f"https://www.youtube.com/{'/'.join(base_parts)}/videos"
+    return f"https://www.youtube.com/{'/'.join(base_parts)}/{tab}"

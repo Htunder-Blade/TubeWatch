@@ -18,6 +18,15 @@ class VideoItem:
 
 
 @dataclass(frozen=True, slots=True)
+class PlaylistItem:
+    """Metadata for one playlist exposed by a YouTube channel."""
+
+    playlist_id: str
+    title: str
+    url: str
+
+
+@dataclass(frozen=True, slots=True)
 class CheckResult:
     """Result of one successful stateful source check."""
 
@@ -50,3 +59,13 @@ class ProcessingBatchResult:
     attempted_count: int
     pending_remaining: int
     results: list[ProcessingItemResult] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class CleanupResult:
+    """Result of deleting an exact set of tester discovery records."""
+
+    source_url: str
+    requested_count: int
+    removed_count: int
+    source_removed: bool

@@ -4,6 +4,8 @@ TubeWatch 是有状态的上层监控工具：读取“视频来源”，通过 
 
 “视频来源”是项目的通用概念。频道和播放列表是当前实现的两种来源，各自在独立模块中提供相同的稳定 `VideoItem` 输出。通用入口只负责根据标准播放列表 URL 路由，不建立抽象基类、大量接口或插件系统。
 
+频道播放列表发现是来源选择辅助能力，不是第三种状态来源。它读取频道 `/playlists` 页面并返回稳定 `PlaylistItem`，由调用者选出一个标准播放列表 URL；真正检查时仍使用既有的 `channel` 或 `playlist` 来源类型。
+
 ```text
 Notebook -> python -m tubewatch check -> CLI -> youtube.channel  --\
                                             -> youtube.playlist --+-> list[VideoItem]
@@ -22,7 +24,9 @@ Notebook -> python -m tubewatch check -> CLI -> youtube.channel  --\
 
 第三方 yt-dlp 数据只存在于来源适配模块内部。项目对外暴露自己的不可变数据模型，并把预期失败转换成项目级异常。
 
-当前 CLI 是正式 Python API 的薄适配层，只负责解析来源 URL、`limit` 和输出格式，并把项目级异常映射为稳定退出码。标准 `/playlist?list=...` URL 路由到播放列表适配器，其他输入保持现有频道与 `@handle` 语义。Tester 配置层把两种来源明确分开：`channel_handle` 是必填主来源，`playlist_url` 是选填附加来源；两者分别调用同一正式 CLI，不合并身份或去重范围。Notebook 与 TubeScribe Tester 使用相同的进程边界：由当前 Kernel 的 `sys.executable` 启动模块入口，在子进程中调用正式代码。Notebook 不直接导入 `src`、不修改 `sys.path`，也不复制来源读取逻辑；其真实检查写入项目内的 `data/tubewatch.sqlite3`，使 Tester 同时成为当前手工录入入口。editable install 让开发中的源码通过标准包机制立即可用，不表示项目已经发布或完成。
+当前 CLI 是正式 Python API 的薄适配层，只负责解析来源 URL、`limit` 和输出格式，并把项目级异常映射为稳定退出码。标准 `/playlist?list=...` URL 路由到播放列表适配器，其他输入保持现有频道与 `@handle` 语义；`playlists` 子命令只列出频道公开播放列表，不写状态。Tester 先调用该命令填充单选下拉菜单，再把频道或一个播放列表交给同一 `check` workflow。Notebook 与 TubeScribe Tester 使用相同的进程边界：由当前 Kernel 的 `sys.executable` 启动模块入口，在子进程中调用正式代码。Notebook 不直接导入 `src`、不修改 `sys.path`，也不复制来源读取逻辑。editable install 让开发中的源码通过标准包机制立即可用，不表示项目已经发布或完成。
+
+播放列表视频适配器按位置分批读取 flat metadata，将私密、删除、字段不完整和重复的视频跳过后继续下一批；因此 `limit` 限制最终有效且唯一的视频数量，而不是原始播放列表的前 N 个位置。只有收集满数量或确认播放列表结束时才停止。
 
 ## SQLite 状态边界
 
@@ -31,6 +35,10 @@ Notebook -> python -m tubewatch check -> CLI -> youtube.channel  --\
 首次检查会把抓取范围内的全部视频返回为新增；检查成功后立即记录“已发现”。`first_seen_at` 保持不变，后续检查会更新元数据和 `last_seen_at`。发现状态与 TubeScribe 处理状态严格分离；处理结果单独写入 `processing_records`。
 
 `processing_records` 为每条发现记录保存 `pending/succeeded/no_subtitles/failed`、尝试次数、输出路径、字幕语言与错误。`no_subtitles` 表示 TubeScribe 已确认没有人工或自动字幕，是正常终态；`failed` 保留给网络、文件和其他处理错误。历史发现记录幂等补为 `pending`，旧的明确无字幕失败迁移为 `no_subtitles`。`process` 只选择 pending，默认一次一条；终态和失败记录不再自动选择。
+
+默认 `process` 继续按全局发现顺序取 pending；Tester 同时传入规范化来源和精确 video ID 集合时，状态查询和剩余计数都限定到该集合。独立清理 cell 通过 `cleanup-test` 在单个事务中删除这些精确发现记录，处理记录通过外键级联删除，来源没有剩余视频时才删除来源行。Tester 字幕写入唯一的 `output/tester/<run-id>`，数据库和文件清理互相独立执行。
+
+Notebook 采用显式的逐 cell 交互，不为 “Run All” 实现等待或暂停。用户在频道选择 cell 的 widget 中加载并选择来源、确认真实处理后，手动运行下一测试 cell 查看状态和字幕 sample，再运行独立清理 cell。测试上下文只记录本次规范化来源、精确 video ID 和唯一输出目录；未清理时拒绝启动下一次测试。
 
 默认数据库路径是 `data/tubewatch.sqlite3`，调用者可以覆盖。项目保留 `data/` 目录，但 SQLite 文件属于本地持久运行状态，不进入版本控制。SQLite 错误统一转换为 `StateStorageError`，网络失败则不得创建或修改状态数据库。
 

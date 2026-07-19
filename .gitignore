@@ -11,3 +11,4 @@ output/raw/*
 !output/raw/.gitkeep
 output/cleaned/*
 !output/cleaned/.gitkeep
+output/tester/

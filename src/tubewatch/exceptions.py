@@ -31,3 +31,7 @@ class TubeScribeNoSubtitlesError(TubeScribeProcessingError):
 
 class InvalidProcessingOptionError(TubeWatchError, ValueError):
     """Raised when a processing batch option is invalid."""
+
+
+class InvalidCleanupOptionError(TubeWatchError, ValueError):
+    """Raised when an exact test cleanup option is invalid."""

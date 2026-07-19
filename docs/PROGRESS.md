@@ -25,11 +25,19 @@
 - Phase 2 已在 Notebook 中由用户显式启用 TubeScribe 完成真实验证：已确认字幕成功产出以及 `no_subtitles` 正常终态。
 - 增加公开 YouTube 播放列表读取 API，并将标准 `/playlist?list=...` URL 路由到独立来源适配器。
 - 增加播放列表有状态检查；使用 `source_type=playlist` 与规范化 URL 独立去重，不改变现有数据库 schema。
-- 扩展 CLI、公共 Python API 和 Tester；Tester 使用必填 `channel_handle` 与选填 `playlist_url` 分别执行相同的 `check` workflow。
+- 扩展 CLI、公共 Python API 和 Tester；Tester 通过正式 CLI 加载频道公开播放列表，并从频道视频或一个播放列表中选择单一 `check` 来源。
 - Phase 3 已通过离线 URL、适配转换、CLI 路由和 SQLite 去重回归；真实播放列表网络 workflow 尚待用户在 Tester 中主动验证。
+- 增加频道公开播放列表发现 API 和 `playlists` CLI。
+- 播放列表发现与选择已完成离线回归；真实频道 `/playlists` 页面和交互 workflow 尚待用户在 Tester 中主动验证。
+- 播放列表视频读取会跳过私密、删除、字段不完整及重复条目并继续向后补足 `limit`；已通过离线批次回归和同一测试来源的只读元数据验证。
+- 增加来源与 video ID 联合过滤的 `process`，以及只删除明确视频集合的 `cleanup-test`。
+- Tester 已改为手动逐 cell 流程：选择频道来源并确认后，下一 cell 对 3 个视频执行处理并保留成功字幕 sample；最后的独立清理 cell 精确删除本次数据库记录和专属输出目录，未清理时不能开始下一次测试。
+- Phase 3 Tester 已由用户完成一次真实播放列表运行：频道播放列表加载与选择成功，两个公开视频成功生成字幕 sample，第三个会员专享视频按普通失败报告，随后精确清理数据库和专属输出目录。
 
 ## 尚未完成
 
 - Phase 3 的真实 YouTube 播放列表网络验证。
+- 频道播放列表下拉选择及 3 视频端到端 Tester 的真实网络验证。
+- 播放列表 flat metadata 中有标题但属于 `subscriber_only`、`premium_only` 或 `needs_auth` 的条目仍可能进入处理；下一步应在发现阶段过滤访问受限条目并继续向后补足有效公开视频。
 - 普通处理失败的重试、定时运行和通知；`no_subtitles` 默认不重试。
 - 后台服务、GUI 和 OpenClaw 集成。

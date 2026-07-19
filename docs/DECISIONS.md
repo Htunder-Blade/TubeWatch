@@ -33,4 +33,11 @@
 31. 频道输入除完整 YouTube URL 外也接受 `@handle` 简写；两种形式统一规范化为相同的 `https://www.youtube.com/@handle/videos` 来源 URL，以保持去重一致。
 32. Phase 3 支持标准 `https://www.youtube.com/playlist?list=...` URL；播放列表在独立适配模块中输出相同的 `VideoItem`，不接受带 `list` 参数的单视频 watch URL 作为来源。
 33. CLI 和通用 Python API 根据标准播放列表 URL 路由，显式频道与播放列表 API 继续保留；SQLite 使用 `source_type=playlist` 和只保留 `list` 参数的规范化 URL 独立去重，无需 schema 迁移。
-34. Tester 配置不使用混合含义的单一 `source_url`；频道 handle 是必填主来源，播放列表 URL 是选填附加来源，两者分别调用 CLI 并独立验证去重。
+34. Phase 3 初始 Tester 配置不使用混合含义的单一 `source_url`；频道 handle 与选填播放列表 URL 分别调用 CLI 并独立验证去重。该配置界面随后由决定 35 的单选交互取代。
+35. Tester 改为先通过正式 `playlists` CLI 读取频道页面公开展示的播放列表，再从频道视频或一个播放列表中选择单一来源；Notebook 不实现 yt-dlp 提取逻辑。
+36. 首期来源选择只限定 `check`，不改变 `process` 从数据库全局最早 pending 记录取任务的行为；真实字幕处理继续默认关闭。
+37. 端到端 Tester 用 `source_url + video_ids` 同时限定 `process`，避免消费共享测试库中的其他 pending；不带过滤参数的正式处理行为保持不变。
+38. Tester 每次要求读取并尝试处理 3 个全新视频；成功项展示清理文本前 20 个非空行，`no_subtitles` 仍算正常业务结果，普通失败使测试失败。
+39. Tester 将本次规范化来源、精确 ID 和唯一 `output/tester/<run-id>` 保存在运行上下文中；用户查看 sample 后通过独立清理 cell 删除数据库记录和测试目录，不删除数据库文件、不无条件清表，也不触碰正式字幕目录。
+40. Tester 采用手动逐 cell 流程，不试图让 “Run All” 等待 widget 交互：来源选择后的测试 cell 执行真实 workflow，最后的清理 cell 明确回收本次数据；未清理时拒绝开始下一次测试。
+41. 播放列表的 `limit` 约束最终有效且唯一的视频集合，而不是原始位置数；适配器分批向后读取并跳过私密、删除、字段不完整和重复条目，直到补足数量或列表结束。

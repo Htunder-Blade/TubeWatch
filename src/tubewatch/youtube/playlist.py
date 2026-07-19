@@ -11,6 +11,7 @@ from tubewatch.models import VideoItem
 from tubewatch.youtube._video import optional_text, video_item_from_entry
 
 _YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com"}
+_MIN_ENTRY_BATCH_SIZE = 20
 
 
 def fetch_playlist_videos(playlist_url: str, limit: int = 10) -> list[VideoItem]:
@@ -20,9 +21,52 @@ def fetch_playlist_videos(playlist_url: str, limit: int = 10) -> list[VideoItem]
     if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
         raise InvalidSourceError("limit 必须是正整数。")
 
+    videos: list[VideoItem] = []
+    seen_video_ids: set[str] = set()
+    batch_size = max(limit, _MIN_ENTRY_BATCH_SIZE)
+    batch_start = 1
+
+    while len(videos) < limit:
+        batch_end = batch_start + batch_size - 1
+        result = _extract_playlist_batch(normalized_url, batch_start, batch_end)
+        entries = result.get("entries")
+        if not isinstance(entries, list):
+            raise SourceFetchError("该 URL 未返回播放列表视频列表。")
+
+        channel_id = optional_text(result.get("channel_id") or result.get("uploader_id"))
+        channel_name = optional_text(result.get("channel") or result.get("uploader"))
+        for entry in entries:
+            item = video_item_from_entry(entry, channel_id, channel_name)
+            if item is None or item.video_id in seen_video_ids:
+                continue
+            seen_video_ids.add(item.video_id)
+            videos.append(item)
+            if len(videos) == limit:
+                break
+
+        playlist_count = result.get("playlist_count")
+        known_count = (
+            playlist_count
+            if isinstance(playlist_count, int) and not isinstance(playlist_count, bool)
+            else None
+        )
+        if not entries or (known_count is not None and batch_end >= known_count):
+            break
+        if known_count is None and len(entries) < batch_size:
+            break
+        batch_start = batch_end + 1
+
+    return videos
+
+
+def _extract_playlist_batch(
+    normalized_url: str,
+    batch_start: int,
+    batch_end: int,
+) -> dict[str, Any]:
     options: dict[str, Any] = {
         "extract_flat": True,
-        "playlistend": limit,
+        "playlist_items": f"{batch_start}:{batch_end}",
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
@@ -41,19 +85,7 @@ def fetch_playlist_videos(playlist_url: str, limit: int = 10) -> list[VideoItem]
 
     if not isinstance(result, dict):
         raise SourceFetchError("YouTube 未返回可识别的播放列表数据。")
-
-    entries = result.get("entries")
-    if not isinstance(entries, list):
-        raise SourceFetchError("该 URL 未返回播放列表视频列表。")
-
-    channel_id = optional_text(result.get("channel_id") or result.get("uploader_id"))
-    channel_name = optional_text(result.get("channel") or result.get("uploader"))
-    videos: list[VideoItem] = []
-    for entry in entries[:limit]:
-        item = video_item_from_entry(entry, channel_id, channel_name)
-        if item is not None:
-            videos.append(item)
-    return videos
+    return result
 
 
 def is_playlist_url(source_url: object) -> bool:

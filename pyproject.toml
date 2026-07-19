@@ -17,6 +17,7 @@ tubewatch = "tubewatch.cli:main"
 
 [project.optional-dependencies]
 notebook = [
+    "ipywidgets>=8.0",
     "jupyterlab>=4.0",
 ]
 tubescribe = [
