@@ -29,6 +29,10 @@ class TubeScribeNoSubtitlesError(TubeScribeProcessingError):
     """Raised when a video has no downloadable subtitles."""
 
 
+class TubeScribeMembersOnlyError(TubeScribeProcessingError):
+    """Raised when a video is restricted to channel members."""
+
+
 class InvalidProcessingOptionError(TubeWatchError, ValueError):
     """Raised when a processing batch option is invalid."""
 

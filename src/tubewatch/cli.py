@@ -174,6 +174,8 @@ def _run_process(argv: Sequence[str]) -> int:
                 print(f"字幕语言：{item.language_code}")
             elif item.status == "no_subtitles":
                 print(f"无字幕：{item.error_message}")
+            elif item.status == "members_only":
+                print(f"会员专享：{item.error_message}")
             else:
                 print(f"错误：{item.error_message}")
     return 1 if any(item.status == "failed" for item in result.results) else 0
@@ -356,6 +358,9 @@ def _processing_batch_to_dict(result: ProcessingBatchResult) -> dict[str, object
         "succeeded_count": sum(item.status == "succeeded" for item in result.results),
         "no_subtitles_count": sum(
             item.status == "no_subtitles" for item in result.results
+        ),
+        "members_only_count": sum(
+            item.status == "members_only" for item in result.results
         ),
         "failed_count": sum(item.status == "failed" for item in result.results),
         "results": [_processing_item_to_dict(item) for item in result.results],

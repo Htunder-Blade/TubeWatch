@@ -6,6 +6,7 @@ from pathlib import Path
 
 from tubewatch.exceptions import (
     InvalidProcessingOptionError,
+    TubeScribeMembersOnlyError,
     TubeScribeNoSubtitlesError,
     TubeScribeProcessingError,
 )
@@ -19,6 +20,7 @@ from tubewatch.state import (
     count_pending_videos,
     load_pending_videos,
     mark_processing_failed,
+    mark_processing_members_only,
     mark_processing_no_subtitles,
     mark_processing_succeeded,
 )
@@ -72,6 +74,25 @@ def process_pending_videos(
                 raise TubeScribeProcessingError(
                     "TubeScribe 返回的视频 ID 与待处理记录不一致。"
                 )
+        except TubeScribeMembersOnlyError as exc:
+            message = str(exc)
+            mark_processing_members_only(
+                state_path,
+                record,
+                attempted_at=attempted_at,
+                error_message=message,
+            )
+            results.append(
+                ProcessingItemResult(
+                    source_url=record.source_url,
+                    video_id=record.video.video_id,
+                    title=record.video.title,
+                    status="members_only",
+                    attempted_at=attempted_at,
+                    error_message=message,
+                )
+            )
+            continue
         except TubeScribeNoSubtitlesError as exc:
             message = str(exc)
             mark_processing_no_subtitles(

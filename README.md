@@ -44,7 +44,7 @@ jupyter lab
 
 打开 `tests/notebooks/channel_tester.ipynb` 后按 cell 顺序操作。先运行到频道选择界面，输入频道并加载播放列表，明确选择频道视频或一个播放列表，并勾选真实处理确认；随后手动运行下方端到端测试 cell。Notebook 不尝试让 “Run All” 等待用户交互。
 
-真实 workflow 每次读取并入库 3 个全新视频，只把这 3 个 ID 交给 TubeScribe。成功项会验证 VTT/TXT 并显示清理文本前 20 个非空行，`no_subtitles` 仍是正常业务结果，普通失败会在 cell 中明确报错。测试记录和专属字幕目录会暂时保留，便于查看 sample；确认后运行独立清理 cell，精确删除本次视频记录和唯一的 `output/tester/<run-id>`，不触碰正式输出目录。测试 cell 报错后也应运行清理 cell。
+真实 workflow 每次读取并入库 3 个全新视频，只把这 3 个 ID 交给 TubeScribe。成功项会验证 VTT/TXT 并显示清理文本前 20 个非空行，`no_subtitles` 和 `members_only` 都是正常业务结果，普通失败会在 cell 中明确报错。测试记录和专属字幕目录会暂时保留，便于查看 sample；确认后运行独立清理 cell，精确删除本次视频记录和唯一的 `output/tester/<run-id>`，不触碰正式输出目录。测试 cell 报错后也应运行清理 cell。
 
 Tester 通过当前 Kernel 的 `sys.executable` 调用正式 CLI，不直接导入项目源码。TubeWatch 必须先以 `.[notebook,tubescribe]` editable 安装在同一环境中。不要保存包含私人 URL、Cookie、运行输出或字幕 sample 的 Notebook；关闭或重启 Kernel 前必须先运行清理 cell。
 
@@ -105,7 +105,7 @@ python -m tubewatch check "https://www.youtube.com/@example" `
     --json
 ```
 
-`check` 只有在来源抓取完整成功后才更新数据库。频道和播放列表拥有独立来源记录；同一视频出现在两种来源中时会分别去重和排队。成功检查会立即标记视频为“已发现”；`process` 成功后标记为 `succeeded`，确认没有可下载字幕时标记为 `no_subtitles`。
+`check` 只有在来源抓取完整成功后才更新数据库。频道和播放列表拥有独立来源记录；同一视频出现在两种来源中时会分别去重和排队。成功检查会立即标记视频为“已发现”；`process` 成功后标记为 `succeeded`，确认没有可下载字幕时标记为 `no_subtitles`，确认仅限频道会员访问时标记为 `members_only`。
 
 显式处理默认只取最早的一个 pending 视频：
 
@@ -113,7 +113,7 @@ python -m tubewatch check "https://www.youtube.com/@example" `
 python -m tubewatch process --limit 1
 ```
 
-可通过 `--state-db`、`--raw-dir` 和 `--cleaned-dir` 覆盖路径，并用 `--json` 获取结构化结果。状态包括 `pending`、`succeeded`、`no_subtitles` 和 `failed`。`no_subtitles` 是正常终态且默认不重试；其他失败记为 `failed`，本阶段也不自动重试。
+可通过 `--state-db`、`--raw-dir` 和 `--cleaned-dir` 覆盖路径，并用 `--json` 获取结构化结果。状态包括 `pending`、`succeeded`、`no_subtitles`、`members_only` 和 `failed`。`no_subtitles` 与 `members_only` 是正常终态且默认不重试；其他失败记为 `failed`，本阶段也不自动重试。
 
 Tester 可同时提供 `--source-url` 和可重复的 `--video-id`，把处理严格限定到一个来源的精确视频集合。两个参数必须同时提供。`cleanup-test` 同样要求来源和至少一个明确的视频 ID，只删除这些发现记录及其级联处理记录：
 
@@ -199,7 +199,7 @@ python -m pip install -e D:\Projects\TubeScribe
 python -m pip install "TubeScribe @ git+https://github.com/Htunder-Blade/TubeScribe.git@main"
 ```
 
-当前可选依赖固定到已确认 commit `8681acc49d8a897aeff7bea9801869e740109b8d`。未来有 release 后应优先固定 release tag；不建议正式环境长期跟踪 `main`。
+当前可选依赖固定到已确认 commit `71f16c411c6e62b6353ed64f479099cd0ecceb62`。未来有 release 后应优先固定 release tag；不建议正式环境长期跟踪 `main`。
 
 安装后可独立验证两个包；其实际安装位置可以不同：
 

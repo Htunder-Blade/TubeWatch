@@ -33,11 +33,13 @@
 - 增加来源与 video ID 联合过滤的 `process`，以及只删除明确视频集合的 `cleanup-test`。
 - Tester 已改为手动逐 cell 流程：选择频道来源并确认后，下一 cell 对 3 个视频执行处理并保留成功字幕 sample；最后的独立清理 cell 精确删除本次数据库记录和专属输出目录，未清理时不能开始下一次测试。
 - Phase 3 Tester 已由用户完成一次真实播放列表运行：频道播放列表加载与选择成功，两个公开视频成功生成字幕 sample，第三个会员专享视频按普通失败报告，随后精确清理数据库和专属输出目录。
+- TubeScribe 更新后，TubeWatch 会把公开的 `WorkflowMembersOnlyError` 转换为 `members_only` 正常终态；CLI、JSON 和 Tester 均单独展示该结果，不再把会员专享视频计为普通失败。该映射、持久化、CLI 返回码和旧 schema 迁移已完成离线回归。
 
 ## 尚未完成
 
+- 更新后的 `members_only` 终态仍需由用户在 Tester 中完成真实网络复验。
 - Phase 3 的真实 YouTube 播放列表网络验证。
 - 频道播放列表下拉选择及 3 视频端到端 Tester 的真实网络验证。
-- 播放列表 flat metadata 中有标题但属于 `subscriber_only`、`premium_only` 或 `needs_auth` 的条目仍可能进入处理；下一步应在发现阶段过滤访问受限条目并继续向后补足有效公开视频。
-- 普通处理失败的重试、定时运行和通知；`no_subtitles` 默认不重试。
+- 播放列表 flat metadata 中有标题但属于 `subscriber_only`、`premium_only` 或 `needs_auth` 的条目仍可能进入处理；会员专享视频会安全结束为 `members_only`，未来仍可考虑在发现阶段过滤访问受限条目并继续向后补足有效公开视频。
+- 普通处理失败的重试、定时运行和通知；`no_subtitles` 与 `members_only` 默认不重试。
 - 后台服务、GUI 和 OpenClaw 集成。

@@ -21,7 +21,7 @@ notebook = [
     "jupyterlab>=4.0",
 ]
 tubescribe = [
-    "TubeScribe @ git+https://github.com/Htunder-Blade/TubeScribe.git@8681acc49d8a897aeff7bea9801869e740109b8d",
+    "TubeScribe @ git+https://github.com/Htunder-Blade/TubeScribe.git@71f16c411c6e62b6353ed64f479099cd0ecceb62",
 ]
 
 [tool.hatch.build.targets.wheel]

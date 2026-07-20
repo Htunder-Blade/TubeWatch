@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from tubewatch.exceptions import (
+    TubeScribeMembersOnlyError,
     TubeScribeNoSubtitlesError,
     TubeScribeProcessingError,
     TubeScribeUnavailableError,
@@ -29,7 +30,7 @@ class TubeScribeResult:
 def ensure_tubescribe_available() -> None:
     """Raise a clear error when the optional TubeScribe package is unavailable."""
 
-    _load_process_video()
+    _load_workflow_api()
 
 
 def process_video_with_tubescribe(
@@ -40,7 +41,7 @@ def process_video_with_tubescribe(
 ) -> TubeScribeResult:
     """Process one video through the installed TubeScribe public workflow."""
 
-    process_video = _load_process_video()
+    process_video, members_only_error = _load_workflow_api()
     try:
         result = process_video(
             video_url,
@@ -48,6 +49,8 @@ def process_video_with_tubescribe(
             cleaned_directory=cleaned_directory,
             reuse_existing=False,
         )
+    except members_only_error as exc:
+        raise TubeScribeMembersOnlyError(str(exc)) from exc
     except Exception as exc:
         if _is_no_subtitles_error(exc):
             raise TubeScribeNoSubtitlesError(_NO_SUBTITLES_MESSAGE) from exc
@@ -65,15 +68,15 @@ def process_video_with_tubescribe(
         raise TubeScribeProcessingError("TubeScribe 返回了无法识别的处理结果。") from exc
 
 
-def _load_process_video() -> Callable[..., Any]:
+def _load_workflow_api() -> tuple[Callable[..., Any], type[Exception]]:
     try:
-        from tubescribe.workflow import process_video
+        from tubescribe.workflow import WorkflowMembersOnlyError, process_video
     except (ImportError, ModuleNotFoundError) as exc:
         raise TubeScribeUnavailableError(
             "TubeScribe is not installed. Install TubeWatch with the TubeScribe "
             "integration dependency or install TubeScribe separately."
         ) from exc
-    return process_video
+    return process_video, WorkflowMembersOnlyError
 
 
 def _is_no_subtitles_error(error: BaseException) -> bool:

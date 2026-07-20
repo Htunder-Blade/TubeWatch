@@ -24,11 +24,11 @@
 22. 保留原有无状态 CLI，用 `tubewatch check` 显式进入有状态模式；Notebook 使用项目内 `data/tubewatch.sqlite3` 录入并保留真实发现记录，同时用连续两次检查验证去重。
 23. `data/` 目录属于项目结构，数据库文件属于用户运行状态并由 Git 忽略；重复运行 Tester 不重置历史记录。
 24. Phase 2 使用显式 `process`，`check` 不自动下载字幕；默认每批只处理一个 pending 视频。
-25. TubeScribe 是固定到 commit `8681acc49d8a897aeff7bea9801869e740109b8d` 的可选依赖，本地 editable install 只改变安装来源。
+25. TubeScribe 是固定到 commit `71f16c411c6e62b6353ed64f479099cd0ecceb62` 的可选依赖，本地 editable install 只改变安装来源。
 26. TubeScribe 调用只存在于小型适配模块，并转换为 TubeWatch 结果与异常。
-27. 处理状态分为 `pending/succeeded/no_subtitles/failed`；确认无人工或自动字幕时记录 `no_subtitles`，它是默认不重试的正常终态，其他失败仍记录为 `failed`。
+27. 处理状态分为 `pending/succeeded/no_subtitles/members_only/failed`；确认无人工或自动字幕时记录 `no_subtitles`，确认仅限频道会员访问时记录 `members_only`，两者都是默认不重试的正常终态，其他失败仍记录为 `failed`。
 28. 默认字幕产物位于 `output/raw` 和 `output/cleaned`，产物不进入版本控制。
-29. Tester 自动处理下一条 pending；`succeeded` 与正确记录的 `no_subtitles` 都算 workflow 通过，只有普通 `failed` 才抛出测试错误。
+29. Tester 自动处理下一条 pending；`succeeded`、`no_subtitles` 与 `members_only` 都算 workflow 通过，只有普通 `failed` 才抛出测试错误。
 30. 同一时间批量发现的视频按数据库录入顺序处理，不以 video ID 重新排序。
 31. 频道输入除完整 YouTube URL 外也接受 `@handle` 简写；两种形式统一规范化为相同的 `https://www.youtube.com/@handle/videos` 来源 URL，以保持去重一致。
 32. Phase 3 支持标准 `https://www.youtube.com/playlist?list=...` URL；播放列表在独立适配模块中输出相同的 `VideoItem`，不接受带 `list` 参数的单视频 watch URL 作为来源。
@@ -37,7 +37,8 @@
 35. Tester 改为先通过正式 `playlists` CLI 读取频道页面公开展示的播放列表，再从频道视频或一个播放列表中选择单一来源；Notebook 不实现 yt-dlp 提取逻辑。
 36. 首期来源选择只限定 `check`，不改变 `process` 从数据库全局最早 pending 记录取任务的行为；真实字幕处理继续默认关闭。
 37. 端到端 Tester 用 `source_url + video_ids` 同时限定 `process`，避免消费共享测试库中的其他 pending；不带过滤参数的正式处理行为保持不变。
-38. Tester 每次要求读取并尝试处理 3 个全新视频；成功项展示清理文本前 20 个非空行，`no_subtitles` 仍算正常业务结果，普通失败使测试失败。
+38. Tester 每次要求读取并尝试处理 3 个全新视频；成功项展示清理文本前 20 个非空行，`no_subtitles` 与 `members_only` 仍算正常业务结果，普通失败使测试失败。
 39. Tester 将本次规范化来源、精确 ID 和唯一 `output/tester/<run-id>` 保存在运行上下文中；用户查看 sample 后通过独立清理 cell 删除数据库记录和测试目录，不删除数据库文件、不无条件清表，也不触碰正式字幕目录。
 40. Tester 采用手动逐 cell 流程，不试图让 “Run All” 等待 widget 交互：来源选择后的测试 cell 执行真实 workflow，最后的清理 cell 明确回收本次数据；未清理时拒绝开始下一次测试。
 41. 播放列表的 `limit` 约束最终有效且唯一的视频集合，而不是原始位置数；适配器分批向后读取并跳过私密、删除、字段不完整和重复条目，直到补足数量或列表结束。
+42. TubeWatch 显式捕获 TubeScribe 的 `WorkflowMembersOnlyError` 并记录 `members_only` 正常终态；该结果不生成字幕产物、不自动重试，也不使 CLI 或 Tester 失败。

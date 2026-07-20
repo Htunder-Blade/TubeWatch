@@ -171,7 +171,7 @@ def _ensure_processing_records_schema(connection: sqlite3.Connection) -> None:
     if row is None:
         _create_processing_records_table(connection)
         return
-    if "'no_subtitles'" in row[0]:
+    if "'no_subtitles'" in row[0] and "'members_only'" in row[0]:
         return
 
     connection.execute(
@@ -189,13 +189,17 @@ def _ensure_processing_records_schema(connection: sqlite3.Connection) -> None:
             source_type, source_url, video_id,
             CASE
                 WHEN status = 'failed' AND error_message = ? THEN 'no_subtitles'
+                WHEN status = 'failed' AND error_message = ? THEN 'members_only'
                 ELSE status
             END,
             attempt_count, last_attempt_at, raw_path, cleaned_path,
             language_code, is_automatic, error_message
         FROM processing_records_legacy
         """,
-        ("该视频没有可下载的字幕。",),
+        (
+            "该视频没有可下载的字幕。",
+            "该视频为频道会员专享，TubeScribe 当前无法获取其字幕。",
+        ),
     )
     connection.execute("DROP TABLE processing_records_legacy")
 
@@ -208,7 +212,9 @@ def _create_processing_records_table(connection: sqlite3.Connection) -> None:
             source_url TEXT NOT NULL,
             video_id TEXT NOT NULL,
             status TEXT NOT NULL CHECK (
-                status IN ('pending', 'succeeded', 'failed', 'no_subtitles')
+                status IN (
+                    'pending', 'succeeded', 'failed', 'no_subtitles', 'members_only'
+                )
             ),
             attempt_count INTEGER NOT NULL DEFAULT 0,
             last_attempt_at TEXT,
@@ -404,6 +410,28 @@ def mark_processing_no_subtitles(
         state_path,
         record,
         status="no_subtitles",
+        attempted_at=attempted_at,
+        raw_path=None,
+        cleaned_path=None,
+        language_code=None,
+        is_automatic=None,
+        error_message=error_message,
+    )
+
+
+def mark_processing_members_only(
+    state_path: str | Path,
+    record: PendingVideoRecord,
+    *,
+    attempted_at: datetime,
+    error_message: str,
+) -> None:
+    """Record that one video is restricted to channel members."""
+
+    _update_processing_record(
+        state_path,
+        record,
+        status="members_only",
         attempted_at=attempted_at,
         raw_path=None,
         cleaned_path=None,
