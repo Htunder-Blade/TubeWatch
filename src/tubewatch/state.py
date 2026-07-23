@@ -9,6 +9,13 @@ from pathlib import Path
 
 from tubewatch.exceptions import StateStorageError
 from tubewatch.models import VideoItem
+from tubewatch.storage.database import (
+    connect_database,
+    initialize_database,
+    resolve_database_path,
+    utc_text,
+)
+from tubewatch.storage.transcripts import save_transcript_in_connection
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,20 +30,7 @@ class PendingVideoRecord:
 def initialize_state_database(state_path: str | Path) -> Path:
     """Create an empty TubeWatch SQLite database and return its resolved path."""
 
-    database_path = _resolve_database_path(state_path)
-    connection: sqlite3.Connection | None = None
-    try:
-        database_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(database_path)
-        with connection:
-            _create_schema(connection)
-            _backfill_processing_records(connection)
-        return database_path
-    except (OSError, sqlite3.Error) as exc:
-        raise StateStorageError(f"无法初始化 TubeWatch 状态数据库：{database_path}（{exc}）") from exc
-    finally:
-        if connection is not None:
-            connection.close()
+    return initialize_database(state_path)
 
 
 def record_discovered_videos(
@@ -49,14 +43,11 @@ def record_discovered_videos(
 ) -> list[VideoItem]:
     """Persist a successful check and return videos not previously discovered."""
 
-    database_path = _resolve_database_path(state_path)
+    database_path = initialize_state_database(state_path)
     connection: sqlite3.Connection | None = None
     try:
-        database_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(database_path)
-        connection.execute("PRAGMA foreign_keys = ON")
+        connection = connect_database(database_path)
         with connection:
-            _create_schema(connection)
             new_videos = _upsert_videos(
                 connection,
                 source_type=source_type,
@@ -86,9 +77,20 @@ def delete_discovered_videos(
     placeholders = ", ".join("?" for _ in video_ids)
     connection: sqlite3.Connection | None = None
     try:
-        connection = sqlite3.connect(database_path)
-        connection.execute("PRAGMA foreign_keys = ON")
+        connection = connect_database(database_path)
         with connection:
+            transcript_ids = [
+                int(row[0])
+                for row in connection.execute(
+                    f"""
+                    SELECT DISTINCT transcript_id FROM processing_records
+                    WHERE source_type = ? AND source_url = ?
+                      AND video_id IN ({placeholders})
+                      AND transcript_id IS NOT NULL
+                    """,
+                    (source_type, source_url, *video_ids),
+                )
+            ]
             cursor = connection.execute(
                 f"""
                 DELETE FROM discovered_videos
@@ -112,124 +114,34 @@ def delete_discovered_videos(
                     (source_type, source_url),
                 )
                 source_removed = source_cursor.rowcount == 1
+            for transcript_id in transcript_ids:
+                still_referenced = connection.execute(
+                    "SELECT 1 FROM processing_records WHERE transcript_id = ? LIMIT 1",
+                    (transcript_id,),
+                ).fetchone()
+                if still_referenced is None:
+                    connection.execute(
+                        "DELETE FROM transcripts WHERE id = ?", (transcript_id,)
+                    )
+            for video_id in video_ids:
+                has_discovery = connection.execute(
+                    "SELECT 1 FROM discovered_videos WHERE video_id = ? LIMIT 1",
+                    (video_id,),
+                ).fetchone()
+                has_transcript = connection.execute(
+                    "SELECT 1 FROM transcripts WHERE video_id = ? LIMIT 1",
+                    (video_id,),
+                ).fetchone()
+                if has_discovery is None and has_transcript is None:
+                    connection.execute(
+                        "DELETE FROM videos WHERE video_id = ?", (video_id,)
+                    )
         return cursor.rowcount, source_removed
     except (OSError, sqlite3.Error) as exc:
         raise StateStorageError(f"无法清理测试发现记录：{database_path}（{exc}）") from exc
     finally:
         if connection is not None:
             connection.close()
-
-
-def _resolve_database_path(state_path: str | Path) -> Path:
-    try:
-        path = Path(state_path).expanduser().resolve()
-    except (OSError, TypeError, ValueError) as exc:
-        raise StateStorageError(f"无法解析状态数据库路径：{state_path}（{exc}）") from exc
-    if path.exists() and path.is_dir():
-        raise StateStorageError(f"状态数据库路径不能是目录：{path}")
-    return path
-
-
-def _create_schema(connection: sqlite3.Connection) -> None:
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS sources (
-            source_type TEXT NOT NULL,
-            source_url TEXT NOT NULL,
-            last_checked_at TEXT NOT NULL,
-            PRIMARY KEY (source_type, source_url)
-        )
-        """
-    )
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS discovered_videos (
-            source_type TEXT NOT NULL,
-            source_url TEXT NOT NULL,
-            video_id TEXT NOT NULL,
-            title TEXT NOT NULL,
-            url TEXT NOT NULL,
-            published_at TEXT,
-            channel_id TEXT,
-            channel_name TEXT,
-            first_seen_at TEXT NOT NULL,
-            last_seen_at TEXT NOT NULL,
-            PRIMARY KEY (source_type, source_url, video_id),
-            FOREIGN KEY (source_type, source_url)
-                REFERENCES sources (source_type, source_url)
-                ON DELETE CASCADE
-        )
-        """
-    )
-    _ensure_processing_records_schema(connection)
-
-
-def _ensure_processing_records_schema(connection: sqlite3.Connection) -> None:
-    row = connection.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'processing_records'"
-    ).fetchone()
-    if row is None:
-        _create_processing_records_table(connection)
-        return
-    if "'no_subtitles'" in row[0] and "'members_only'" in row[0]:
-        return
-
-    connection.execute(
-        "ALTER TABLE processing_records RENAME TO processing_records_legacy"
-    )
-    _create_processing_records_table(connection)
-    connection.execute(
-        """
-        INSERT INTO processing_records (
-            source_type, source_url, video_id, status, attempt_count,
-            last_attempt_at, raw_path, cleaned_path, language_code,
-            is_automatic, error_message
-        )
-        SELECT
-            source_type, source_url, video_id,
-            CASE
-                WHEN status = 'failed' AND error_message = ? THEN 'no_subtitles'
-                WHEN status = 'failed' AND error_message = ? THEN 'members_only'
-                ELSE status
-            END,
-            attempt_count, last_attempt_at, raw_path, cleaned_path,
-            language_code, is_automatic, error_message
-        FROM processing_records_legacy
-        """,
-        (
-            "该视频没有可下载的字幕。",
-            "该视频为频道会员专享，TubeScribe 当前无法获取其字幕。",
-        ),
-    )
-    connection.execute("DROP TABLE processing_records_legacy")
-
-
-def _create_processing_records_table(connection: sqlite3.Connection) -> None:
-    connection.execute(
-        """
-        CREATE TABLE processing_records (
-            source_type TEXT NOT NULL,
-            source_url TEXT NOT NULL,
-            video_id TEXT NOT NULL,
-            status TEXT NOT NULL CHECK (
-                status IN (
-                    'pending', 'succeeded', 'failed', 'no_subtitles', 'members_only'
-                )
-            ),
-            attempt_count INTEGER NOT NULL DEFAULT 0,
-            last_attempt_at TEXT,
-            raw_path TEXT,
-            cleaned_path TEXT,
-            language_code TEXT,
-            is_automatic INTEGER,
-            error_message TEXT,
-            PRIMARY KEY (source_type, source_url, video_id),
-            FOREIGN KEY (source_type, source_url, video_id)
-                REFERENCES discovered_videos (source_type, source_url, video_id)
-                ON DELETE CASCADE
-        )
-        """
-    )
 
 
 def _upsert_videos(
@@ -240,7 +152,7 @@ def _upsert_videos(
     videos: list[VideoItem],
     checked_at: datetime,
 ) -> list[VideoItem]:
-    checked_at_text = checked_at.isoformat()
+    checked_at_text = utc_text(checked_at)
     connection.execute(
         """
         INSERT INTO sources (source_type, source_url, last_checked_at)
@@ -253,6 +165,31 @@ def _upsert_videos(
 
     new_videos: list[VideoItem] = []
     for video in videos:
+        connection.execute(
+            """
+            INSERT INTO videos (
+                video_id, title, url, published_at, channel_id, channel_name,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (video_id) DO UPDATE SET
+                title = excluded.title,
+                url = excluded.url,
+                published_at = excluded.published_at,
+                channel_id = excluded.channel_id,
+                channel_name = excluded.channel_name,
+                updated_at = excluded.updated_at
+            """,
+            (
+                video.video_id,
+                video.title,
+                video.url,
+                utc_text(video.published_at) if video.published_at else None,
+                video.channel_id,
+                video.channel_name,
+                checked_at_text,
+                checked_at_text,
+            ),
+        )
         existing = connection.execute(
             """
             SELECT 1 FROM discovered_videos
@@ -283,7 +220,7 @@ def _upsert_videos(
                 video.video_id,
                 video.title,
                 video.url,
-                video.published_at.isoformat() if video.published_at else None,
+                utc_text(video.published_at) if video.published_at else None,
                 video.channel_id,
                 video.channel_name,
                 checked_at_text,
@@ -311,7 +248,7 @@ def load_pending_videos(
     )
     connection: sqlite3.Connection | None = None
     try:
-        connection = sqlite3.connect(database_path)
+        connection = connect_database(database_path)
         rows = connection.execute(
             """
             SELECT
@@ -359,20 +296,67 @@ def mark_processing_succeeded(
     cleaned_path: Path,
     language_code: str,
     is_automatic: bool,
-) -> None:
-    """Record one successful TubeScribe attempt."""
+    cleaned_text: str,
+    raw_file_path: str | None,
+    source_content_hash: str | None,
+) -> int:
+    """Atomically save a transcript and mark its processing job successful."""
 
-    _update_processing_record(
-        state_path,
-        record,
-        status="succeeded",
-        attempted_at=attempted_at,
-        raw_path=str(raw_path),
-        cleaned_path=str(cleaned_path),
-        language_code=language_code,
-        is_automatic=int(is_automatic),
-        error_message=None,
-    )
+    database_path = resolve_database_path(state_path)
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = connect_database(database_path)
+        with connection:
+            transcript_id = save_transcript_in_connection(
+                connection,
+                video_id=record.video.video_id,
+                language_code=language_code or "und",
+                source_kind="auto_generated" if is_automatic else "manual",
+                cleaned_text=cleaned_text,
+                raw_file_path=raw_file_path,
+                source_content_hash=source_content_hash,
+                word_count=None,
+                cleaner_name="TubeScribe",
+                cleaner_version=None,
+                saved_at=attempted_at,
+            )
+            cursor = connection.execute(
+                """
+                UPDATE processing_records SET
+                    status = 'succeeded',
+                    attempt_count = attempt_count + 1,
+                    last_attempt_at = ?,
+                    raw_path = ?,
+                    cleaned_path = ?,
+                    language_code = ?,
+                    is_automatic = ?,
+                    error_message = NULL,
+                    transcript_id = ?
+                WHERE source_type = ? AND source_url = ? AND video_id = ?
+                  AND status = 'pending'
+                """,
+                (
+                    utc_text(attempted_at),
+                    str(raw_path),
+                    str(cleaned_path),
+                    language_code or "und",
+                    int(is_automatic),
+                    transcript_id,
+                    record.source_type,
+                    record.source_url,
+                    record.video.video_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise sqlite3.IntegrityError("找不到对应的待处理记录。")
+        return transcript_id
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        raise StateStorageError(
+            f"无法原子保存 transcript 和处理状态：{database_path}（{exc}）"
+        ) from exc
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def mark_processing_failed(
@@ -458,7 +442,7 @@ def count_pending_videos(
     )
     connection: sqlite3.Connection | None = None
     try:
-        connection = sqlite3.connect(database_path)
+        connection = connect_database(database_path)
         return int(
             connection.execute(
                 f"""
@@ -525,10 +509,10 @@ def _update_processing_record(
     is_automatic: int | None,
     error_message: str | None,
 ) -> None:
-    database_path = _resolve_database_path(state_path)
+    database_path = resolve_database_path(state_path)
     connection: sqlite3.Connection | None = None
     try:
-        connection = sqlite3.connect(database_path)
+        connection = connect_database(database_path)
         with connection:
             cursor = connection.execute(
                 """
@@ -545,7 +529,7 @@ def _update_processing_record(
                 """,
                 (
                     status,
-                    attempted_at.isoformat(),
+                    utc_text(attempted_at),
                     raw_path,
                     cleaned_path,
                     language_code,

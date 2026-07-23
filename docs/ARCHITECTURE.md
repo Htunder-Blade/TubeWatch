@@ -19,7 +19,10 @@ Notebook -> python -m tubewatch check -> CLI -> youtube.channel  --\
                                                          explicit process command
                                                                    |
                                                                    v
-                                                 TubeScribe API -> output/raw + output/cleaned
+                                                 TubeScribe API -> output/raw + compatibility TXT
+                                                        |
+                                                        v
+                                      SQLite transcripts + atomic succeeded job link
 ```
 
 第三方 yt-dlp 数据只存在于来源适配模块内部。项目对外暴露自己的不可变数据模型，并把预期失败转换成项目级异常。
@@ -30,17 +33,21 @@ Notebook -> python -m tubewatch check -> CLI -> youtube.channel  --\
 
 ## SQLite 状态边界
 
-频道和播放列表检查都先完整读取来源，只有读取成功后才打开并事务性更新 SQLite。数据库以 `source_type + source_url + video_id` 唯一标识一条发现记录，因此同一视频可分别属于不同来源。来源 URL 使用对应适配模块的规范化结果；`source_type` 当前为 `channel` 或 `playlist`。
+频道和播放列表检查都先完整读取来源，只有读取成功后才打开并事务性更新 SQLite。`videos` 以 YouTube video ID 表示全局视频实体；`discovered_videos` 仍以 `source_type + source_url + video_id` 唯一标识来源发现，因此同一视频可分别属于不同来源，但 transcript 只归属于全局视频。来源 URL 使用对应适配模块的规范化结果；`source_type` 当前为 `channel` 或 `playlist`。
 
 首次检查会把抓取范围内的全部视频返回为新增；检查成功后立即记录“已发现”。`first_seen_at` 保持不变，后续检查会更新元数据和 `last_seen_at`。发现状态与 TubeScribe 处理状态严格分离；处理结果单独写入 `processing_records`。
 
-`processing_records` 为每条发现记录保存 `pending/succeeded/no_subtitles/members_only/failed`、尝试次数、输出路径、字幕语言与错误。`no_subtitles` 表示 TubeScribe 已确认没有人工或自动字幕，`members_only` 表示视频仅限频道会员访问，两者都是正常终态；`failed` 保留给网络、文件和其他处理错误。历史发现记录幂等补为 `pending`，旧的明确无字幕或会员专享失败会迁移为对应终态。`process` 只选择 pending，默认一次一条；终态和失败记录不再自动选择。
+`processing_records` 为每条发现记录保存 `pending/succeeded/no_subtitles/members_only/failed`、尝试次数、兼容产物路径、字幕语言、错误和明确的 `transcript_id`。`no_subtitles` 表示 TubeScribe 已确认没有人工或自动字幕，`members_only` 表示视频仅限频道会员访问，两者都是正常终态；`failed` 保留给网络、文件和其他处理错误。历史发现记录幂等补为 `pending`，旧的明确无字幕或会员专享失败会迁移为对应终态；旧 `succeeded` 因没有权威 transcript 而迁回 `pending`。`process` 只选择 pending，默认一次一条；终态和失败记录不再自动选择。
+
+`transcripts` 保存 cleaned text、语言、来源类型、cleaner 元数据、raw/cleaned SHA-256、字符数和 raw VTT 相对路径。唯一键 `(video_id, language_code, source_kind)` 提供幂等 upsert。TubeScribe 网络与文件处理在事务外完成；确认 VTT/TXT 可读并计算 hash 后，repository upsert 与 job `succeeded` 更新才在同一短事务中提交。SQLite trigger 进一步拒绝没有匹配 transcript 的成功状态及删除仍被成功 job 引用的 transcript。
+
+所有数据库通过 `schema_migrations` 自动升级。每次启动只执行未记录的 migration，整个 migration 批次使用 `BEGIN IMMEDIATE`，失败整体回滚。新库顺序应用初始 schema 和 transcript schema；旧无版本库先被识别为初始版本再升级，不删除来源或发现历史。
 
 默认 `process` 继续按全局发现顺序取 pending；Tester 同时传入规范化来源和精确 video ID 集合时，状态查询和剩余计数都限定到该集合。独立清理 cell 通过 `cleanup-test` 在单个事务中删除这些精确发现记录，处理记录通过外键级联删除，来源没有剩余视频时才删除来源行。Tester 字幕写入唯一的 `output/tester/<run-id>`，数据库和文件清理互相独立执行。
 
 Notebook 采用显式的逐 cell 交互，不为 “Run All” 实现等待或暂停。用户在频道选择 cell 的 widget 中加载并选择来源、确认真实处理后，手动运行下一测试 cell 查看状态和字幕 sample，再运行独立清理 cell。测试上下文只记录本次规范化来源、精确 video ID 和唯一输出目录；未清理时拒绝启动下一次测试。
 
-默认数据库路径是 `data/tubewatch.sqlite3`，调用者可以覆盖。项目保留 `data/` 目录，但 SQLite 文件属于本地持久运行状态，不进入版本控制。SQLite 错误统一转换为 `StateStorageError`，网络失败则不得创建或修改状态数据库。
+默认数据库路径是 `data/tubewatch.sqlite3`，调用者可以覆盖。项目保留 `data/` 目录，但 SQLite 文件属于本地持久运行状态，不进入版本控制。SQLite 错误统一转换为 `StateStorageError`，网络失败则不得创建或修改状态数据库。数据库正文是 cleaned transcript 的权威版本；raw VTT 是文件系统中的原始产物；TXT 只用于兼容或导出。
 
 ## TubeScribe 外部依赖边界
 

@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from tubewatch.cleanup import cleanup_test_videos
 from tubewatch.checks import check_source_updates
 from tubewatch.exceptions import (
+    AmbiguousTranscriptError,
     InvalidCleanupOptionError,
     InvalidProcessingOptionError,
     InvalidSourceError,
@@ -23,10 +24,12 @@ from tubewatch.models import (
     PlaylistItem,
     ProcessingBatchResult,
     ProcessingItemResult,
+    TranscriptRecord,
     VideoItem,
 )
 from tubewatch.processing import process_pending_videos
 from tubewatch.sources import fetch_source_videos
+from tubewatch.storage.transcripts import get_transcript
 from tubewatch.youtube.channel import fetch_channel_playlists
 
 
@@ -34,6 +37,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run TubeWatch and return a process exit code."""
 
     arguments_list = list(argv) if argv is not None else sys.argv[1:]
+    if arguments_list and arguments_list[0] == "transcript":
+        return _run_transcript(arguments_list[1:])
     if arguments_list and arguments_list[0] == "cleanup-test":
         return _run_cleanup_test(arguments_list[1:])
     if arguments_list and arguments_list[0] == "playlists":
@@ -205,6 +210,31 @@ def _run_cleanup_test(argv: Sequence[str]) -> int:
     return 0
 
 
+def _run_transcript(argv: Sequence[str]) -> int:
+    parser = _build_transcript_parser()
+    arguments = parser.parse_args(argv)
+    try:
+        transcript = get_transcript(
+            arguments.state_db,
+            arguments.video_id,
+            arguments.language_code,
+            source_kind=arguments.source_kind,
+        )
+    except AmbiguousTranscriptError as exc:
+        parser.error(str(exc))
+    except StateStorageError as exc:
+        print(f"TubeWatch：{exc}", file=sys.stderr)
+        return 1
+    if transcript is None:
+        print("TubeWatch：没有匹配的 transcript。", file=sys.stderr)
+        return 1
+    if arguments.json:
+        print(json.dumps(_transcript_to_dict(transcript), ensure_ascii=False))
+    else:
+        print(transcript.cleaned_text)
+    return 0
+
+
 def _build_fetch_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tubewatch",
@@ -305,6 +335,27 @@ def _build_cleanup_test_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build_transcript_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tubewatch transcript",
+        description="明确读取 SQLite 中的权威清理后字幕正文。",
+    )
+    parser.add_argument("video_id", help="要读取字幕的视频 ID")
+    parser.add_argument("--language-code", help="字幕语言代码；多字幕时应明确指定")
+    parser.add_argument(
+        "--source-kind",
+        choices=("manual", "auto_generated", "translated", "unknown"),
+        help="字幕来源类型；同语言多来源时应明确指定",
+    )
+    parser.add_argument(
+        "--state-db",
+        default="data/tubewatch.sqlite3",
+        help="SQLite 状态数据库路径",
+    )
+    parser.add_argument("--json", action="store_true", help="输出包含正文的 JSON")
+    return parser
+
+
 def _video_to_dict(video: VideoItem) -> dict[str, str | None]:
     return {
         "video_id": video.video_id,
@@ -348,6 +399,10 @@ def _processing_item_to_dict(item: ProcessingItemResult) -> dict[str, object]:
         "language_code": item.language_code,
         "is_automatic": item.is_automatic,
         "error_message": item.error_message,
+        "transcript_saved": item.transcript_saved,
+        "transcript_id": item.transcript_id,
+        "character_count": item.character_count,
+        "raw_file_path": item.raw_file_path,
     }
 
 
@@ -373,4 +428,24 @@ def _cleanup_result_to_dict(result: CleanupResult) -> dict[str, object]:
         "requested_count": result.requested_count,
         "removed_count": result.removed_count,
         "source_removed": result.source_removed,
+    }
+
+
+def _transcript_to_dict(transcript: TranscriptRecord) -> dict[str, object]:
+    return {
+        "id": transcript.id,
+        "video_id": transcript.video_id,
+        "language_code": transcript.language_code,
+        "source_kind": transcript.source_kind,
+        "format": transcript.format,
+        "cleaned_text": transcript.cleaned_text,
+        "cleaner_name": transcript.cleaner_name,
+        "cleaner_version": transcript.cleaner_version,
+        "source_content_hash": transcript.source_content_hash,
+        "cleaned_content_hash": transcript.cleaned_content_hash,
+        "character_count": transcript.character_count,
+        "word_count": transcript.word_count,
+        "raw_file_path": transcript.raw_file_path,
+        "created_at": transcript.created_at.isoformat(),
+        "updated_at": transcript.updated_at.isoformat(),
     }

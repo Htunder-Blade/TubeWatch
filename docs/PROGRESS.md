@@ -34,12 +34,19 @@
 - Tester 已改为手动逐 cell 流程：选择频道来源并确认后，下一 cell 对 3 个视频执行处理并保留成功字幕 sample；最后的独立清理 cell 精确删除本次数据库记录和专属输出目录，未清理时不能开始下一次测试。
 - Phase 3 Tester 已由用户完成一次真实播放列表运行：频道播放列表加载与选择成功，两个公开视频成功生成字幕 sample，第三个会员专享视频按普通失败报告，随后精确清理数据库和专属输出目录。
 - TubeScribe 更新后，TubeWatch 会把公开的 `WorkflowMembersOnlyError` 转换为 `members_only` 正常终态；CLI、JSON 和 Tester 均单独展示该结果，不再把会员专享视频计为普通失败。该映射、持久化、CLI 返回码和旧 schema 迁移已完成离线回归。
+- 增加事务性 `schema_migrations`、全局 `videos`、独立 `transcripts` 及 `processing_records.transcript_id`；旧库无损回填，旧 `succeeded` 迁回 `pending` 以等待权威正文。
+- 增加 transcript save/get/list/delete/export Python API 和显式 `transcript` CLI；普通 JSON 只增加 transcript 摘要字段，不包含正文。
+- TubeScribe 成功后先在事务外验证 VTT/TXT、读取 UTF-8 正文并计算 SHA-256，再在同一事务中 upsert transcript 与更新 job；写库失败完整回滚。
+- 增加 `transcript_storage_tester.ipynb`，已实际离线执行通过 schema、foreign key、旧库升级、migration 幂等/回滚、repository upsert/多语言/级联以及 fake processing 成功/终态/写库回滚。
+- 更新真实 `channel_tester.ipynb`：成功后通过正式 transcript CLI 从数据库读取正文，验证 TXT 一致性、hash、字符数、job 关联和 raw VTT 相对路径，并显示数据库前 20 个非空行。
 
 ## 尚未完成
 
 - 更新后的 `members_only` 终态仍需由用户在 Tester 中完成真实网络复验。
+- 更新后的 SQLite transcript 持久化与真实 TubeScribe 产物一致性仍需用户在 `channel_tester.ipynb` 显式运行网络测试。
 - Phase 3 的真实 YouTube 播放列表网络验证。
 - 频道播放列表下拉选择及 3 视频端到端 Tester 的真实网络验证。
 - 播放列表 flat metadata 中有标题但属于 `subscriber_only`、`premium_only` 或 `needs_auth` 的条目仍可能进入处理；会员专享视频会安全结束为 `members_only`，未来仍可考虑在发现阶段过滤访问受限条目并继续向后补足有效公开视频。
 - 普通处理失败的重试、定时运行和通知；`no_subtitles` 与 `members_only` 默认不重试。
 - 后台服务、GUI 和 OpenClaw 集成。
+- transcript segments、FTS5、embedding 和 AI 摘要。

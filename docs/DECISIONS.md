@@ -42,3 +42,9 @@
 40. Tester 采用手动逐 cell 流程，不试图让 “Run All” 等待 widget 交互：来源选择后的测试 cell 执行真实 workflow，最后的清理 cell 明确回收本次数据；未清理时拒绝开始下一次测试。
 41. 播放列表的 `limit` 约束最终有效且唯一的视频集合，而不是原始位置数；适配器分批向后读取并跳过私密、删除、字段不完整和重复条目，直到补足数量或列表结束。
 42. TubeWatch 显式捕获 TubeScribe 的 `WorkflowMembersOnlyError` 并记录 `members_only` 正常终态；该结果不生成字幕产物、不自动重试，也不使 CLI 或 Tester 失败。
+43. 增加全局 `videos` 和独立 `transcripts`；字幕不绑定来源发现记录，也不把大正文放进视频元数据行。
+44. SQLite cleaned text 是权威数据源；raw VTT 留在文件系统并只在数据库保存 output 相对路径，TXT 降为兼容或导出产物。
+45. `processing_records.transcript_id` 明确链接成功产物；transcript upsert 与 `succeeded` 更新必须位于同一事务，schema trigger 同时保护该不变量。
+46. 使用内建的有序 `schema_migrations`；新旧数据库都事务性升级，失败整体回滚，旧版无 transcript 的 `succeeded` 迁回 `pending`。
+47. transcript 读取必须显式；无选择条件只在唯一匹配时返回，多匹配抛出 `AmbiguousTranscriptError`，普通视频列表不加载正文。
+48. 本阶段提供 Python TXT 导出 API 和显式 `transcript` CLI 读取；不实现 segments、FTS5、embedding 或 AI 摘要。

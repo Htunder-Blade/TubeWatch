@@ -17,6 +17,10 @@ class StateStorageError(TubeWatchError):
     """Raised when TubeWatch cannot read or update its local state."""
 
 
+class AmbiguousTranscriptError(TubeWatchError, ValueError):
+    """Raised when a transcript selector matches more than one record."""
+
+
 class TubeScribeUnavailableError(TubeWatchError):
     """Raised when the optional TubeScribe package is not installed."""
 

@@ -50,6 +50,10 @@ class ProcessingItemResult:
     language_code: str | None = None
     is_automatic: bool | None = None
     error_message: str | None = None
+    transcript_saved: bool = False
+    transcript_id: int | None = None
+    character_count: int | None = None
+    raw_file_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,3 +73,24 @@ class CleanupResult:
     requested_count: int
     removed_count: int
     source_removed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriptRecord:
+    """One authoritative cleaned transcript stored in SQLite."""
+
+    id: int
+    video_id: str
+    language_code: str
+    source_kind: str
+    format: str
+    cleaned_text: str
+    cleaner_name: str | None
+    cleaner_version: str | None
+    source_content_hash: str | None
+    cleaned_content_hash: str
+    character_count: int
+    word_count: int | None
+    raw_file_path: str | None
+    created_at: datetime
+    updated_at: datetime
