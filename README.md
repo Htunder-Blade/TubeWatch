@@ -46,9 +46,9 @@ jupyter lab
 
 真实 workflow 每次读取并入库 3 个全新视频，只把这 3 个 ID 交给 TubeScribe。成功项会从 SQLite 重新读取 transcript，验证它与 TubeScribe TXT 一致，同时检查 SHA-256、字符数、processing 关联和 VTT 相对路径，再显示数据库正文前 20 个非空行。`no_subtitles` 和 `members_only` 都是正常业务结果，普通失败会在 cell 中明确报错。测试记录和专属字幕目录会暂时保留，便于查看 VTT；确认后运行独立清理 cell，精确删除本次视频记录、关联 transcript 和唯一的 `output/tester/<run-id>`，不触碰正式输出目录。测试 cell 报错后也应运行清理 cell。
 
-`tests/notebooks/transcript_storage_tester.ipynb` 是完全离线的回归 Notebook，使用临时数据库和 fake TubeScribe 结果覆盖 schema、migration、repository、终态分支及事务回滚。它可以安全地从上到下执行。
+`tests/notebooks/transcript_storage_tester.ipynb` 是完全离线的回归 Notebook，使用临时数据库和 fake TubeScribe 结果覆盖 schema、migration、repository、终态分支及事务回滚。它可以安全地从上到下执行；每项输出会说明测试目的、实际结果、期望结果和 PASS/FAIL。
 
-Tester 通过当前 Kernel 的 `sys.executable` 调用正式 CLI，不直接导入项目源码。TubeWatch 必须先以 `.[notebook,tubescribe]` editable 安装在同一环境中。不要保存包含私人 URL、Cookie、运行输出或字幕 sample 的 Notebook；关闭或重启 Kernel 前必须先运行清理 cell。
+Tester 通过当前 Kernel 的 `sys.executable` 调用正式 CLI，不直接导入项目源码。TubeWatch 必须先以 `.[notebook,tubescribe]` editable 安装在同一环境中。提交前应重新运行受影响的 Tester Notebook，并把不含隐私的测试结果和执行计数保留在 Notebook 中。不得提交私人 URL、Cookie、登录信息或真实字幕 sample；真实网络 Tester 必须先运行清理 cell，并确认保存的输出已脱敏。
 
 ## 命令行入口
 
